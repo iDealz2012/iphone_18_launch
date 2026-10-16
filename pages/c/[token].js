@@ -1,49 +1,71 @@
-// What a pass's QR opens.
-// - Door staff (logged in) scanning with the phone camera: checks the guest in.
-// - Anyone else (e.g. the guest): a friendly welcome, nothing is changed.
+// What a card's QR opens when scanned with a normal phone camera.
+// - Logged-in staff: shows the guest and a Check in button. Nothing happens until they tap it.
+// - Anyone else (e.g. the guest): a friendly welcome. Nothing is changed.
+// The door scanner at /scan checks guests in directly.
+import { useState } from 'react';
 import { getRole } from '../../lib/session';
-import { getGuest, checkIn, getSettings } from '../../lib/store';
+import { getGuest, getSettings } from '../../lib/store';
 
 export async function getServerSideProps({ req, res, params }) {
   res.setHeader('Cache-Control', 'no-store');
   const id = String(params.token || '').toLowerCase();
   const role = getRole(req);
   try {
-    if (role) {
-      const result = await checkIn(id, 'camera');
-      return { props: { mode: 'staff', result } };
-    }
-    const g = await getGuest(id);
-    const s = await getSettings();
-    return { props: { mode: 'guest', name: g ? g.name : null, venue: s.venue || '' } };
+    const [g, s] = await Promise.all([getGuest(id), getSettings()]);
+    return { props: {
+      mode: role ? 'staff' : 'guest',
+      id,
+      name: g ? g.name : null,
+      checkedAt: g ? g.checkedAt : null,
+      venue: s.venue || '',
+    } };
   } catch (e) {
     console.error(e);
-    return { props: { mode: role ? 'staff' : 'guest', result: { status: 'error' }, name: null, venue: '' } };
+    return { props: { mode: role ? 'staff' : 'guest', id, name: null, checkedAt: null, venue: '', error: true } };
   }
 }
 
 const time = (ms) => new Date(ms).toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Colombo' });
 
-export default function Pass({ mode, result, name, venue }) {
-  if (mode === 'staff') {
-    const r = result || { status: 'error' };
-    const view = {
-      ok: ['✓', r.name, `Checked in at ${r.at ? time(r.at) : ''}`],
-      already: ['!', r.name, `Already checked in at ${r.at ? time(r.at) : 'an earlier time'}. This pass has been used.`],
-      unknown: ['×', 'Not recognised', 'This pass is not on the guest list.'],
-      error: ['×', 'Could not check in', 'The guest list could not be reached. Try again.'],
-    }[r.status] || ['×', 'Could not check in', ''];
-    return (
-      <div className={`result ${r.status}`}>
-        <div className="card">
-          <div className="mark">{view[0]}</div>
-          <div className="big">{view[1]}</div>
-          <p>{view[2]}</p>
-          <a className="btn primary big" href="/scan">Next guest</a>
-        </div>
-      </div>
-    );
+function StaffView({ id, name, checkedAt, error }) {
+  const [result, setResult] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  async function checkIn() {
+    setBusy(true);
+    try {
+      const r = await fetch('/api/checkin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: id, via: 'camera' }) });
+      if (r.status === 401) { window.location.href = '/login?next=/c/' + id; return; }
+      const d = await r.json();
+      setResult(r.ok ? d : { status: 'error' });
+    } catch { setResult({ status: 'error' }); }
+    setBusy(false);
   }
+
+  let kind, mark, title, text;
+  if (error) { kind = 'error'; mark = '×'; title = 'Could not load'; text = 'The guest list could not be reached. Try again.'; }
+  else if (!name) { kind = 'unknown'; mark = '×'; title = 'Not recognised'; text = 'This card is not on the guest list.'; }
+  else if (result?.status === 'ok') { kind = 'ok'; mark = '✓'; title = name; text = `Checked in at ${time(result.at)}`; }
+  else if (result?.status === 'already' || (!result && checkedAt)) { kind = 'already'; mark = '!'; title = name; text = `Already checked in at ${time(result?.at || checkedAt)}. This card has been used.`; }
+  else if (result) { kind = 'error'; mark = '×'; title = 'Could not check in'; text = 'Try again in a moment.'; }
+  else { kind = 'pending'; mark = ''; title = name; text = 'Not checked in yet.'; }
+
+  return (
+    <div className={`result ${kind === 'pending' ? 'ok' : kind}`}>
+      <div className="card" style={kind === 'pending' ? { background: 'var(--surface)', borderColor: 'var(--line)' } : undefined}>
+        {mark && <div className="mark">{mark}</div>}
+        <div className="big">{title}</div>
+        <p>{text}</p>
+        {kind === 'pending' && <button className="btn primary big" onClick={checkIn} disabled={busy}>{busy ? 'Checking in…' : 'Check in'}</button>}
+        <a className="btn big" href="/scan">Open door scanner</a>
+      </div>
+    </div>
+  );
+}
+
+export default function Pass(props) {
+  if (props.mode === 'staff') return <StaffView {...props} />;
+  const { name, venue } = props;
   return (
     <main className="guest">
       <div className="inner">
