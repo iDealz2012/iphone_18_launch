@@ -1,0 +1,20 @@
+{
+  "name": "idealz-launch-checkin",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "@fontsource/inter": "5.1.0",
+    "@upstash/redis": "1.34.3",
+    "jsqr": "1.4.0",
+    "jszip": "3.10.1",
+    "next": "14.2.15",
+    "qrcode": "1.5.4",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  }
+}
