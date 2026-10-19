@@ -39,6 +39,7 @@ export default function Admin() {
   const [toast, setToast] = useState('');
   const [armed, setArmed] = useState('');       // id armed for removal
   const [zipping, setZipping] = useState('');
+  const [lastBatch, setLastBatch] = useState(null); // guests from the latest paste
   const [origin, setOrigin] = useState('');
   const canvasRef = useRef(null);
   const toastT = useRef(null);
@@ -83,8 +84,11 @@ export default function Admin() {
     try {
       const d = await api('/api/guests', { method: 'POST', body: JSON.stringify({ guests: list }) });
       setBulk(''); setShowBulk(false); await load();
-      say(`${d.created.length} guest${d.created.length === 1 ? '' : 's'} added`);
-    } catch (err) { if (err.message !== 'auth') say(err.message); }
+      const batch = { list: d.created, name: `hello18-new-${d.created.length}-cards-${stamp()}.zip` };
+      setLastBatch(batch);
+      say(`${d.created.length} guest${d.created.length === 1 ? '' : 's'} added. Downloading their cards…`);
+      await zipCards(batch.list, batch.name);
+    } catch (err) { if (err.message !== 'auth') say(err.message); setZipping(''); }
   }
 
   async function saveVenue(e) {
@@ -110,9 +114,20 @@ export default function Admin() {
     saveBlob(await canvasToBlob(c), fileNameFor(g.name));
   }
 
-  async function downloadAll() {
+  function downloadAll() {
     const list = guests.filter((g) => !g.walkIn);
     if (!list.length) return say('Add guests first.');
+    return zipCards(list, 'hello18-invitations.zip');
+  }
+
+  function stamp() {
+    const d = new Date();
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
+  }
+
+  async function zipCards(list, zipName) {
+    if (zipping) return;
     const JSZip = (await import('jszip')).default;
     const zip = new JSZip();
     const c = document.createElement('canvas');
@@ -128,7 +143,7 @@ export default function Admin() {
     }
     setZipping('Packing ZIP…');
     const blob = await zip.generateAsync({ type: 'blob' });
-    saveBlob(blob, 'hello18-invitations.zip');
+    saveBlob(blob, zipName);
     setZipping('');
   }
 
@@ -196,6 +211,11 @@ export default function Admin() {
         <div className="top">
           <h2>Guest list</h2>
           <div className="nav">
+            {lastBatch && lastBatch.list.length > 0 && (
+              <button className="btn small primary" onClick={() => zipCards(lastBatch.list.filter((g) => guests.some((x) => x.id === g.id)), lastBatch.name)} disabled={!!zipping}>
+                Download the {lastBatch.list.length} new cards (ZIP)
+              </button>
+            )}
             <button className="btn small" onClick={downloadAll} disabled={!!zipping}>{zipping || 'Download all cards (ZIP)'}</button>
             <button className="btn small" onClick={exportCsv}>Export attendance</button>
           </div>
