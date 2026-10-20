@@ -32,6 +32,8 @@ export default function Admin() {
   const [memory, setMemory] = useState(false);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [showPhone, setShowPhone] = useState(false);
+  const [bulkShowPhone, setBulkShowPhone] = useState(false);
   const [bulk, setBulk] = useState('');
   const [showBulk, setShowBulk] = useState(false);
   const [filter, setFilter] = useState('');
@@ -61,15 +63,15 @@ export default function Admin() {
   // Draw the open card
   useEffect(() => {
     if (!card || !canvasRef.current) return;
-    drawCard(canvasRef.current, { name: card.name, venue: venueSaved, url: passUrl(origin, card.id) }).catch((e) => say(e.message));
+    drawCard(canvasRef.current, { name: card.name, venue: venueSaved, phone: card.showPhone ? card.phone : '', url: passUrl(origin, card.id) }).catch((e) => say(e.message));
   }, [card, venueSaved, origin]);
 
   async function addOne(e) {
     e.preventDefault();
     if (!name.trim()) return;
     try {
-      const d = await api('/api/guests', { method: 'POST', body: JSON.stringify({ guests: [{ name, phone }] }) });
-      setName(''); setPhone('');
+      const d = await api('/api/guests', { method: 'POST', body: JSON.stringify({ guests: [{ name, phone, showPhone }] }) });
+      setName(''); setPhone(''); setShowPhone(false);
       await load();
       if (d.created[0]) setCard(d.created[0]);
     } catch (err) { if (err.message !== 'auth') say(err.message); }
@@ -78,7 +80,7 @@ export default function Admin() {
   async function addBulk() {
     const list = bulk.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((l) => {
       const parts = l.split(/\t|,/);
-      return { name: parts[0].trim(), phone: (parts[1] || '').trim() };
+      return { name: parts[0].trim(), phone: (parts[1] || '').trim(), showPhone: bulkShowPhone };
     }).filter((g) => g.name);
     if (!list.length) return say('Paste at least one name.');
     try {
@@ -110,7 +112,7 @@ export default function Admin() {
 
   async function downloadOne(g) {
     const c = document.createElement('canvas');
-    await drawCard(c, { name: g.name, venue: venueSaved, url: passUrl(origin, g.id) });
+    await drawCard(c, { name: g.name, venue: venueSaved, phone: g.showPhone ? g.phone : '', url: passUrl(origin, g.id) });
     saveBlob(await canvasToBlob(c), fileNameFor(g.name));
   }
 
@@ -135,7 +137,7 @@ export default function Admin() {
     for (let i = 0; i < list.length; i++) {
       setZipping(`Making cards ${i + 1} / ${list.length}`);
       const g = list[i];
-      await drawCard(c, { name: g.name, venue: venueSaved, url: passUrl(origin, g.id) });
+      await drawCard(c, { name: g.name, venue: venueSaved, phone: g.showPhone ? g.phone : '', url: passUrl(origin, g.id) });
       let fn = fileNameFor(g.name);
       if (used.has(fn)) fn = fn.replace('.png', `-${g.id.slice(1, 5)}.png`);
       used.add(fn);
@@ -196,12 +198,20 @@ export default function Admin() {
           <button className="btn primary" type="submit">Create card</button>
         </div>
         <p className="hint">
+          <label htmlFor="showPhone" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginRight: 12, color: 'var(--ink)', fontWeight: 600 }}>
+            <input id="showPhone" type="checkbox" checked={showPhone} onChange={(e) => setShowPhone(e.target.checked)} />
+            Print phone on card
+          </label>
           Their card opens with its own QR, ready to download.{' '}
           <button type="button" className="btn small" onClick={() => setShowBulk((s) => !s)}>{showBulk ? 'Hide' : 'Paste many names'}</button>
         </p>
         {showBulk && (
           <div className="block">
             <textarea id="bulk" placeholder={'One guest per line. Phone is optional:\nPiumi Hansamali, 0771234567\nKasun Perera'} value={bulk} onChange={(e) => setBulk(e.target.value)} />
+            <label htmlFor="bulkShowPhone" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 600 }}>
+              <input id="bulkShowPhone" type="checkbox" checked={bulkShowPhone} onChange={(e) => setBulkShowPhone(e.target.checked)} />
+              Print phone numbers on these cards
+            </label>
             <button type="button" className="btn primary" onClick={addBulk}>Add {bulk.split(/\r?\n/).filter((l) => l.trim()).length || ''} guests</button>
           </div>
         )}
@@ -228,7 +238,7 @@ export default function Admin() {
             <div className="item" key={g.id}>
               <div className="who">
                 <div className="nm">{g.name}</div>
-                <div className="sub">{[g.phone, g.checkedAt ? 'in at ' + time(g.checkedAt) : ''].filter(Boolean).join(' · ') || 'No phone'}</div>
+                <div className="sub">{[g.phone && (g.showPhone ? g.phone + ' (on card)' : g.phone), g.checkedAt ? 'in at ' + time(g.checkedAt) : ''].filter(Boolean).join(' · ') || 'No phone'}</div>
               </div>
               <div className="acts">
                 {g.walkIn ? <span className="chip walk">Walk-in</span> : <span className={`chip ${g.checkedAt ? 'in' : 'out'}`}>{g.checkedAt ? 'Arrived' : 'Not yet'}</span>}
